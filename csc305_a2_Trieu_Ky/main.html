@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html>
+
+<script id="vertex-shader" type="x-shader/x-vertex">#version 300 es
+
+in vec4 vPosition;
+in vec3 vNormal;
+in vec4 vColor; // Note this is not actually getting used the compiler will optimize it out which will throw vertexAttribPointer errors on javascript side
+in vec2 vTexCoord;
+uniform mat4 modelViewMatrix;
+uniform mat4 projectionMatrix;
+out vec4 fColor;
+out vec2 fTexCoord;
+out vec3 fPosition; //output position for interpolation
+out vec3 fNormal; //output normal for interpolation
+void
+main()
+{
+    
+    gl_Position = projectionMatrix * modelViewMatrix * vPosition;
+    
+    // pass along important variables for the ADS shader
+	fTexCoord = vTexCoord;
+    fColor = vColor;
+    fPosition = (modelViewMatrix * vPosition).xyz; //calculate view coordinates 
+    fNormal = vNormal;
+}
+</script>
+
+<script id="fragment-shader" type="x-shader/x-fragment">#version 300 es
+
+precision mediump float;
+
+uniform vec4 ambientProduct, diffuseProduct, specularProduct;
+uniform mat4 viewMatrix;
+uniform mat4 normalMatrix;
+uniform vec4 lightPosition;
+uniform float shininess;
+uniform int useWorldLight;
+uniform sampler2D texture1;
+uniform sampler2D texture2;
+uniform sampler2D texture3;
+uniform sampler2D texture4;
+uniform float cellshadeangle1;
+uniform float cellshadeangle2;
+uniform float impactangle1;
+uniform float impactangle2;
+uniform int useTextures;
+uniform float globalIllumination;
+uniform float blackholepercent;
+uniform int impact; //uniform to turn on impact frames
+uniform vec4 pointofimpact; //position to calculate illumination
+in vec4 fColor;
+in vec2 fTexCoord;
+in vec3 fPosition;
+in vec3 fNormal;
+layout(location=0) out vec4 fragColor ;
+
+void
+main()
+{   
+    //impact frame shader idea: mark point of impact, treat as source of infinite light, color anything off angle black, everything else white
+    //ADS shader
+    // Transform vertex normal into eye coordinates
+    vec3 N = normalize( (normalMatrix*vec4(fNormal,0.0)).xyz);
+    vec3 L = vec3(0.0,0.0,0.0);
+    //Transform light position to be fixed and not relative to the eye
+    if(useWorldLight == 1){
+        vec4 worldlightPos = (viewMatrix * lightPosition);
+        L = vec3(normalize(worldlightPos.xyz-fPosition)) ;
+    }
+    else{
+        L = vec3(normalize(lightPosition.xyz-fPosition)) ;
+    }
+    vec3 V = normalize(-fPosition.xyz) ;
+    vec3 R = reflect(-L, N) ;
+
+
+    // Compute terms in the illumination equation
+    float lightDotNormal = max( dot(L, N), 0.0 ); 
+    vec4 diffuse = vec4(0.0, 0.0, 0.0, 1.0);
+    diffuse = diffuseProduct * lightDotNormal;
+	
+    //blin-phong illumination model
+	vec3 H = normalize(L + V);
+    float blinreflected = pow(max(dot(N, H), 0.0), shininess * 4.0);
+    //float reflectedDotViewShiny = pow( max(dot(R, V), 0.0), shininess );
+	vec4 specular = vec4(0.0, 0.0, 0.0, 1.0);
+    //specular = specularProduct * reflectedDotViewShiny;
+    specular = specularProduct * blinreflected;
+
+    if( dot(L, N) < 0.0 ) {
+        specular = vec4(0.0, 0.0, 0.0, 1.0);
+    }
+    
+    vec4 frColor = ambientProduct + diffuse + specular; //Increase global brightness if needed
+    if (frColor.r > 1.0){
+        frColor.r = 1.0;
+    }
+    if (frColor.g > 1.0){
+        frColor.g = 1.0;
+    }
+    if (frColor.b > 1.0){
+        frColor.b = 1.0;
+    }
+    frColor.a = 1.0;
+
+    if( useTextures == 0){
+        fragColor = texture( texture2, fTexCoord );
+    }
+	else if( useTextures == 1)
+    {
+		fragColor = texture( texture1, fTexCoord );
+	}
+    else if( useTextures == 2)
+    {
+		fragColor = texture( texture3, fTexCoord );
+	}
+    else if( useTextures == 3)
+    {   
+        vec4 Tcol = texture( texture4, fTexCoord ) * blackholepercent;
+        Tcol.a = 1.0;
+		fragColor = Tcol;
+	}
+	else
+	{
+		fragColor = frColor * globalIllumination;
+        fragColor.a = 1.0;
+	}
+    //impact frame main function
+    if(impact == 1){
+        //calculate the point of impact in view coordinates
+        vec4 poi = viewMatrix * pointofimpact;
+        //calculate the light vector to point
+        L = vec3(normalize(poi.xyz-fPosition));
+        //calculate dot product to normal to get angle to surface
+        lightDotNormal = dot(L, N);
+        //check if angle is >90, if so color black, else color white (set poi inside an object to make it black)
+        if(lightDotNormal > impactangle1){
+            fragColor = vec4(1.0,1.0,1.0,1.0);
+        } 
+        else{
+            fragColor = vec4(0.0,0.0,0.0,1.0);
+        }
+    }
+}
+</script>
+
+<script type="text/javascript" src="Common/webgl-utils.js"></script>
+<script type="text/javascript" src="Common/initShaders.js"></script>
+
+<script type="text/javascript" src="Common/MV.js"></script>
+<script type="text/javascript" src="objects.js"></script>
+<script type="text/javascript" src="main.js"></script>
+
+
+<body>
+<canvas id="gl-canvas" width="512" height="512">
+Oops ... your browser doesn't support the HTML5 canvas element
+</canvas>
+
+<br/>
+<br/>
+
+<div id="textureToggleButton">
+    <input id="textureToggleButtoni" type="button" value="Toggle Textures"/>
+</div>
+</body>
+</html>
